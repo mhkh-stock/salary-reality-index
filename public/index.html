@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Salary Reality Index — Real Pakistani Salaries, From Real Reports</title>
+<meta name="description" content="Anonymous salary reports from Pakistani graduates: median pay by role, city and experience. No names, no logins — approved reports only.">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">💰 Salary Reality Index <span class="urdu">تنخواہ ریئلٹی انڈیکس</span></div>
+  <nav><a href="#report">Report salary</a><a href="#stats">Stats board</a><a href="#companies">Companies</a><a href="#reference">Published figures</a><a href="/admin.html">Admin</a></nav>
+</header>
+
+<section class="hero">
+  <h1>Asli tankhwah, asli data <span class="urdu">— اصل تنخواہ، اصل ڈیٹا</span></h1>
+  <p>What do Pakistani graduates <em>actually</em> earn? No blog ranges, no guesses — medians from anonymous reports by people doing the job, plus published figures from Levels.fyi, PayScale and Indeed, each shown with its source.</p>
+  <p class="warn">🔒 <strong>100% anonymous.</strong> We never ask your name, email or company login. Every report starts PENDING and only counts after admin approval. No report is ever presented as verified employment.</p>
+</section>
+
+<section class="section" id="report">
+  <h2>Report your salary — anonymously</h2>
+  <form id="reportForm">
+    <label>Role
+      <select id="fRole" required></select>
+    </label>
+    <label>City
+      <select id="fCity" required></select>
+    </label>
+    <label>Experience
+      <select id="fExp" required>
+        <option value="0–1">0–1 years</option>
+        <option value="1–3">1–3 years</option>
+        <option value="3–5">3–5 years</option>
+        <option value="5+">5+ years</option>
+      </select>
+    </label>
+    <label>Monthly base salary (PKR)
+      <input id="fBase" type="number" min="1" max="49999999" step="1" required placeholder="e.g. 85000">
+    </label>
+    <label>Yearly bonus (PKR, optional)
+      <input id="fBonus" type="number" min="0" step="1" placeholder="0">
+    </label>
+    <label>Work type
+      <select id="fWork" required>
+        <option>Local Pakistan</option>
+        <option>Remote International</option>
+      </select>
+    </label>
+    <label>Company (optional)
+      <input id="fCompany" maxlength="100" placeholder="e.g. Systems Limited">
+    </label>
+    <button type="submit">Submit anonymously</button>
+  </form>
+  <p id="reportMsg" class="note"></p>
+  <p class="note">Company names are shown only when at least 3 approved reports name that company. With fewer, the company stays hidden — that protects you.</p>
+</section>
+
+<section class="section" id="stats">
+  <h2>Stats board — approved reports only</h2>
+  <div class="filters">
+    <label>Role <select id="sRole"><option value="">All roles</option></select></label>
+    <label>City <select id="sCity"><option value="">All cities</option></select></label>
+    <label>Experience <select id="sExp"><option value="">All</option><option>0–1</option><option>1–3</option><option>3–5</option><option>5+</option></select></label>
+    <label>Work type <select id="sWork"><option value="">All</option><option>Local Pakistan</option><option>Remote International</option></select></label>
+    <button id="sGo">Show stats</button>
+  </div>
+  <div id="statsOut"></div>
+</section>
+
+<section class="section" id="companies">
+  <h2>Company medians</h2>
+  <p class="note">A company appears here only when at least 3 approved reports name it. Anything less stays hidden — see the rule, not a guess.</p>
+  <div id="companiesOut"></div>
+</section>
+
+<section class="section" id="reference">
+  <h2>Published figures — other platforms, shown with source</h2>
+  <p class="note"><strong>These are NOT our community stats.</strong> They are published figures from other platforms, kept in a separate panel so they never inflate or mix with our own medians.</p>
+  <h3>Why do the sources disagree?</h3>
+  <p>Levels.fyi's median (about PKR 258,790/month for software engineers) sits far above PayScale (about PKR 80,000/month) and Indeed entry figures (about PKR 86,000/month) because Levels.fyi skews to top companies and counts stock + bonus, while the others skew broader and base-only. That is why every figure below shows its source, its sample size, and what it counts — so you can judge it yourself.</p>
+  <div id="referenceOut"></div>
+</section>
+
+<footer>
+  <p><strong>Honest limits:</strong> community medians come only from approved anonymous reports and are only as good as their sample size — small samples are labelled. Published reference figures are other platforms' data, shown with source, not the app's own. No report is ever presented as verified employment. No names, emails or logins are ever collected.</p>
+  <p><a href="/admin.html">Admin</a> · Salary Reality Index — built for Pakistani graduates.</p>
+</footer>
+<script src="/app.js"></script>
+</body>
+</html>

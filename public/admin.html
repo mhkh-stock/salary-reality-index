@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin — Salary Reality Index</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="logo">💰 Salary Reality Index <span class="urdu">— Admin</span></div>
+  <nav><a href="/">Home</a></nav>
+</header>
+<section class="section">
+  <h1>Moderation queue</h1>
+  <p class="note">Reports start PENDING and never appear in stats until approved. Company names stay hidden until 3 approved reports name the company — that rule is enforced by the server, not by this page.</p>
+  <label>Admin code <input id="code" type="password" placeholder="Admin code"></label>
+  <label>Show
+    <select id="status">
+      <option value="pending">Pending</option>
+      <option value="approved">Approved</option>
+      <option value="rejected">Rejected</option>
+      <option value="hidden">Hidden</option>
+      <option value="all">All</option>
+    </select>
+  </label>
+  <button id="load">Load queue</button>
+  <p id="msg" class="note"></p>
+  <div id="list"></div>
+</section>
+<script src="/admin.js"></script>
+</body>
+</html>
