@@ -1,0 +1,7 @@
+# Local SQLite database (never ship the local DB)
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db

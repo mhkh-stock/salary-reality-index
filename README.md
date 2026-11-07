@@ -67,8 +67,11 @@ node test.js              # full test suite on a throwaway DB (uses a dummy test
 - `POST /api/report` — creates a PENDING report. Validates role/city/exp
   against the allowed lists and base salary as a positive number under PKR
   50,000,000/month and yearly bonus under PKR 600,000,000, else 400.
-- `GET /api/admin/reports?code=&status=` — moderation queue (pending /
-  approved / rejected / hidden / all; any other status → 400). Wrong code → 403.
+- `GET /api/admin/reports?status=` — moderation queue (pending /
+  approved / rejected / hidden / all; any other status → 400). The admin
+  code travels ONLY in the `Authorization: Bearer <code>` header — a
+  `?code=` query param is rejected with 403 even when correct. Wrong or
+  missing code → 403.
 - `POST /api/admin/approve|reject|hide` — `{code, id}`. Wrong code → 403.
   Only legal moderation moves are allowed (approve from pending/hidden/
   rejected, reject from pending/approved, hide from approved only); an

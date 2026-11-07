@@ -7,6 +7,9 @@
 // Admin gate is a shared code that comes ONLY from the ADMIN_CODE environment
 // variable. There is NO default: the server exits FATAL without it, so a
 // deployed copy can never be moderated with a code anyone can read in the repo.
+// The code travels ONLY in the Authorization: Bearer header (GET) or the POST
+// body — never in a URL query string (query strings land in browser history,
+// server logs and referers).
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs');
@@ -136,6 +139,12 @@ function companies() {
 function adminOk(code) {
   return code === ADMIN_CODE;
 }
+function bearerCode(req) {
+  // Bearer <code> from the Authorization header, same pattern as Mandi/Bijli.
+  const h = req.headers.authorization || '';
+  if (h.startsWith('Bearer ')) return h.slice(7).trim();
+  return '';
+}
 
 // ---- HTTP layer (same shape as the house style) ----
 function sendJson(res, code, obj) {
@@ -215,7 +224,10 @@ const server = http.createServer(async (req, res) => {
         status: 'pending', note: 'Your report is PENDING. It will appear in stats only after admin approval.' });
     }
     if (p === '/api/admin/reports' && req.method === 'GET') {
-      if (!adminOk(url.searchParams.get('code') || '')) return sendJson(res, 403, { error: 'bad admin code' });
+      if (url.searchParams.has('code')) {
+        return sendJson(res, 403, { error: 'admin code must not be passed in the URL query string — use the Authorization: Bearer header' });
+      }
+      if (!adminOk(bearerCode(req))) return sendJson(res, 403, { error: 'bad admin code' });
       const status = url.searchParams.get('status') || 'pending';
       if (!['pending', 'approved', 'rejected', 'hidden', 'all'].includes(status)) {
         return sendJson(res, 400, { error: 'status must be pending, approved, rejected, hidden or all' });

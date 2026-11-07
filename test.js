@@ -38,6 +38,12 @@ async function stats(q) {
   if (!r.ok) throw new Error('stats failed: ' + JSON.stringify(r.data));
   return r.data;
 }
+async function adminList(status, code) {
+  // Admin list auth: Authorization: Bearer header only — never ?code=.
+  const headers = {};
+  if (code !== undefined) headers.Authorization = 'Bearer ' + code;
+  return j(BASE + '/api/admin/reports?status=' + status, { headers });
+}
 
 async function main() {
   for (const f of [DB, DB + '-wal', DB + '-shm']) { try { fs.unlinkSync(f); } catch {} }
@@ -101,9 +107,17 @@ async function main() {
     const sPend = await stats('role=' + encodeURIComponent('Data Analyst') + '&city=Islamabad&exp=' + encodeURIComponent('1–3'));
     check('pending report invisible in stats', sPend.count === 0, sPend);
 
-    // 6. Admin gates: wrong code 403.
-    const wrongList = await j(BASE + '/api/admin/reports?code=nope&status=pending');
+    // 6. Admin gates: wrong code 403; query-string codes rejected outright.
+    const wrongList = await adminList('pending', 'nope');
     check('admin list wrong code 403', wrongList.status === 403, wrongList.status);
+    const noHeaderList = await adminList('pending');
+    check('admin list no header 403', noHeaderList.status === 403, noHeaderList.status);
+    const queryList = await j(BASE + '/api/admin/reports?code=' + CODE + '&status=pending');
+    check('admin list query-string code rejected 403 (even when correct)', queryList.status === 403, queryList.status);
+    const queryWrongList = await j(BASE + '/api/admin/reports?code=nope&status=pending');
+    check('admin list query-string wrong code 403', queryWrongList.status === 403, queryWrongList.status);
+    const goodList = await adminList('pending', CODE);
+    check('admin list Bearer code 200', goodList.ok === true && Array.isArray(goodList.data.rows), goodList.status);
     const wrongApprove = await j(BASE + '/api/admin/approve', { method: 'POST',
       headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ code: 'nope', id: pendId }) });
     check('admin approve wrong code 403', wrongApprove.status === 403, wrongApprove.status);
@@ -178,7 +192,7 @@ async function main() {
     // 13. Health + admin status validation.
     const health = await j(BASE + '/health');
     check('health 200 + ok', health.ok === true && health.data.ok === true, health);
-    const badStatus = await j(BASE + '/api/admin/reports?code=' + CODE + '&status=garbage');
+    const badStatus = await adminList('garbage', CODE);
     check('admin list bad status 400', badStatus.status === 400, badStatus.status);
 
     // 14. Moderation state machine: illegal moves are 409, restore works.

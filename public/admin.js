@@ -13,7 +13,8 @@ async function load() {
   const status = document.getElementById('status').value;
   const msg = document.getElementById('msg');
   const list = document.getElementById('list');
-  const r = await j('/api/admin/reports?code=' + encodeURIComponent(code) + '&status=' + status);
+  const r = await j('/api/admin/reports?status=' + status,
+    { headers: { Authorization: 'Bearer ' + code } });
   if (!r.ok) { msg.textContent = '❌ ' + (r.data.error || 'Could not load.'); list.innerHTML = ''; return; }
   msg.textContent = r.data.rows.length + ' report(s).';
   if (r.data.rows.length === 0) { list.innerHTML = '<p class="note">Queue is empty for this filter.</p>'; return; }
