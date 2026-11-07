@@ -21,6 +21,8 @@ async function init() {
   const m = meta.data;
   fillSelect(document.getElementById('fRole'), m.roles);
   fillSelect(document.getElementById('fCity'), m.cities);
+  fillSelect(document.getElementById('fExp'), m.exp_bands);
+  fillSelect(document.getElementById('fWork'), m.work_types);
   fillSelect(document.getElementById('sRole'), m.roles, 'All roles');
   fillSelect(document.getElementById('sCity'), m.cities, 'All cities');
   loadStats();
@@ -62,7 +64,8 @@ async function loadStats() {
   const s = r.data;
   if (s.empty) {
     out.innerHTML = '<div class="empty">No approved reports match these filters yet. '
-      + 'Be the first — <a href="#report">report your salary anonymously</a>. Nothing is invented here: zero reports means zero figures, not a guess.</div>';
+      + 'Be the first — <a href="#report">report your salary anonymously</a>. Nothing is invented here: zero reports means zero figures, not a guess. '
+      + 'If you filtered narrowly, try widening a filter (e.g. All cities) before concluding there is no data.</div>';
     return;
   }
   out.innerHTML = '<div class="cards">'
@@ -73,6 +76,7 @@ async function loadStats() {
     + '<div class="card"><span>Reports counted</span><strong>' + s.count + '</strong></div>'
     + '<div class="card"><span>Range</span><strong>' + pkr(s.min) + ' – ' + pkr(s.max) + '</strong></div>'
     + '</div>'
+    + '<p class="note">Typical pay — the middle 50% of approved reports fall between <strong>' + pkr(s.p25) + '</strong> and <strong>' + pkr(s.p75) + '</strong> per month. The median is the middle value: half of reports are below it, half above.</p>'
     + (s.sample_note ? '<p class="warn">⚠️ ' + esc(s.sample_note) + ' (' + s.count + ' approved report' + (s.count === 1 ? '' : 's') + ').</p>' : '');
 }
 document.getElementById('sGo').addEventListener('click', loadStats);
@@ -82,7 +86,7 @@ async function loadCompanies() {
   const out = document.getElementById('companiesOut');
   if (!r.ok || r.data.companies.length === 0) {
     out.innerHTML = '<p class="note">No company has 3 approved reports yet, so no company is named here. '
-      + 'Companies with fewer than 3 reports are shown as “Hidden (fewer than 3 reports)” — that rule protects anonymity.</p>';
+      + 'Companies with fewer than 3 reports are not listed at all — that rule protects anonymity.</p>';
     return;
   }
   out.innerHTML = '<div class="table-wrap"><table><thead><tr><th>Company</th><th>Reports</th><th>Median base / month</th></tr></thead><tbody>'

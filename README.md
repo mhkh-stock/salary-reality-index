@@ -52,24 +52,27 @@ medians.
 ## Run it
 
 ```bash
-node server.js            # http://127.0.0.1:3033
-DB_FILE=/tmp/salary.sqlite node server.js   # custom DB path (SnapDeploy)
-ADMIN_CODE=my-secret-code node server.js    # custom admin code
-node test.js              # full test suite on a throwaway DB
+ADMIN_CODE=your-private-code node server.js   # REQUIRED — server exits without it; there is no default code
+DB_FILE=/tmp/salary.sqlite ADMIN_CODE=your-private-code node server.js   # custom DB path (SnapDeploy)
+node test.js              # full test suite on a throwaway DB (uses a dummy test code)
 ```
 
 ## API
 
+- `GET /health` — liveness check (`{ok: true}`).
 - `GET /api/meta` — allowed roles, cities, experience bands, work types.
 - `GET /api/stats?role=&city=&exp=&work=` — approved-only stats.
 - `GET /api/reference` — published figures with source + date.
 - `GET /api/companies` — only companies with ≥ 3 approved reports, medians.
 - `POST /api/report` — creates a PENDING report. Validates role/city/exp
   against the allowed lists and base salary as a positive number under PKR
-  50,000,000/month, else 400.
+  50,000,000/month and yearly bonus under PKR 600,000,000, else 400.
 - `GET /api/admin/reports?code=&status=` — moderation queue (pending /
-  approved / rejected / hidden / all). Wrong code → 403.
+  approved / rejected / hidden / all; any other status → 400). Wrong code → 403.
 - `POST /api/admin/approve|reject|hide` — `{code, id}`. Wrong code → 403.
+  Only legal moderation moves are allowed (approve from pending/hidden/
+  rejected, reject from pending/approved, hide from approved only); an
+  illegal move → 409, unknown id → 404.
 
 ## Honest limits
 
@@ -79,8 +82,10 @@ node test.js              # full test suite on a throwaway DB
   not the app's own — and never merged into community medians.
 - No report is ever presented as verified employment. A report is an
   anonymous self-report that passed a spam/moderation check, nothing more.
-- The admin code is a shared demo-grade code (env `ADMIN_CODE`, default
-  `salary-admin`). For real public use, set a private code in the deploy
-  environment — the default is written in this README.
+- The admin code comes only from the `ADMIN_CODE` environment variable —
+  there is no default and the server refuses to start without it. Never
+  publish the code: anyone holding it can approve, reject or hide reports
+  and so change the published medians. Set a private code in the deploy
+  environment and keep it out of the repo, docs and screenshots.
 - No SMS/WhatsApp alerts, no employer verification, no salary-slip checks
   (v2 ideas — see PLAN.md).

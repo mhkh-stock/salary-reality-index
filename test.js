@@ -55,6 +55,7 @@ async function main() {
     const meta = await j(BASE + '/api/meta');
     check('meta roles = 8', meta.data.roles && meta.data.roles.length === 8, meta.data.roles);
     check('meta cities = 11', meta.data.cities && meta.data.cities.length === 11, meta.data.cities);
+    check('meta max bonus = 600000000', meta.data.max_bonus_yearly_pkr === 600000000, meta.data.max_bonus_yearly_pkr);
 
     // 2. Reference rows carry source + date.
     const ref = await j(BASE + '/api/reference');
@@ -84,6 +85,15 @@ async function main() {
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       check('400 for ' + name, r.status === 400, r.status);
     }
+    // 4b. Bonus cap: at the cap is rejected, just under it is accepted.
+    const bonusCap = await j(BASE + '/api/report', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'Data Analyst', city: 'Lahore', exp_band: '1–3', base_monthly_pkr: 50000, bonus_yearly_pkr: 600000000, work_type: 'Local Pakistan' }) });
+    check('400 for bonus at cap', bonusCap.status === 400, bonusCap.status);
+    const bonusOk = await j(BASE + '/api/report', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'Accountant', city: 'Hyderabad', exp_band: '5+', base_monthly_pkr: 50000, bonus_yearly_pkr: 599999999, work_type: 'Local Pakistan' }) });
+    check('200 for bonus just under cap', bonusOk.status === 200, bonusOk.status);
 
     // 5. Pending report does not affect stats.
     const pendId = await postReport({ role: 'Data Analyst', city: 'Islamabad', exp_band: '1–3',
@@ -164,6 +174,52 @@ async function main() {
     check('homepage 200 + title', home.ok && homeText.includes('Salary Reality Index'), home.status);
     const adminPage = await fetch(BASE + '/admin.html');
     check('admin page 200', adminPage.ok, adminPage.status);
+
+    // 13. Health + admin status validation.
+    const health = await j(BASE + '/health');
+    check('health 200 + ok', health.ok === true && health.data.ok === true, health);
+    const badStatus = await j(BASE + '/api/admin/reports?code=' + CODE + '&status=garbage');
+    check('admin list bad status 400', badStatus.status === 400, badStatus.status);
+
+    // 14. Moderation state machine: illegal moves are 409, restore works.
+    async function adminAct(act, id, code) {
+      return j(BASE + '/api/admin/' + act, { method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: code === undefined ? CODE : code, id }) });
+    }
+    const smId = await postReport({ role: 'Digital Marketer', city: 'Multan', exp_band: '3–5',
+      base_monthly_pkr: 77000, work_type: 'Local Pakistan' });
+    const hidePend = await adminAct('hide', smId);
+    check('hide pending -> 409', hidePend.status === 409, hidePend.status);
+    const approveMissing = await adminAct('approve', 999999);
+    check('approve unknown id -> 404', approveMissing.status === 404, approveMissing.status);
+    const approveNan = await adminAct('approve', 'abc');
+    check('approve non-numeric id -> 400', approveNan.status === 400, approveNan.status);
+    check('approve pending -> 200', (await adminAct('approve', smId)).ok === true);
+    check('hide approved -> 200', (await adminAct('hide', smId)).ok === true);
+    const hideAgain = await adminAct('hide', smId);
+    check('hide hidden -> 409', hideAgain.status === 409, hideAgain.status);
+    check('restore hidden via approve -> 200', (await adminAct('approve', smId)).ok === true);
+    check('reject approved -> 200', (await adminAct('reject', smId)).ok === true);
+    check('restore rejected via approve -> 200', (await adminAct('approve', smId)).ok === true);
+    const sSm = await stats('role=' + encodeURIComponent('Digital Marketer') + '&city=Multan&exp=' + encodeURIComponent('3–5'));
+    check('restored report counts again', sSm.count === 1 && sSm.median === 77000, sSm);
+
+    // 15. Fail-closed: a server started without ADMIN_CODE must exit, not serve.
+    const DB2 = DB + '2';
+    for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
+    const envNoCode = { ...process.env, PORT: '3098', DB_FILE: DB2 };
+    delete envNoCode.ADMIN_CODE;
+    const child2 = spawn('node', ['server.js'], { cwd: DIR, stdio: 'ignore', env: envNoCode });
+    let exitCode = null;
+    child2.on('exit', (c) => { exitCode = c; });
+    for (let i = 0; i < 30 && exitCode === null; i++) await new Promise((r) => setTimeout(r, 100));
+    check('server exits without ADMIN_CODE', exitCode !== null && exitCode !== 0, exitCode);
+    let noServe = false;
+    try { const r = await fetch('http://127.0.0.1:3098/api/meta'); noServe = !r.ok; } catch { noServe = true; }
+    check('nothing listening without ADMIN_CODE', noServe);
+    try { child2.kill(); } catch {}
+    for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
   } finally {
     child.kill();
     await new Promise((r) => setTimeout(r, 300));

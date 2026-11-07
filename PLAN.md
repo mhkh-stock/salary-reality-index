@@ -2,6 +2,24 @@
 
 ## Status: v1.0 built and tested (2026-11-04)
 
+## v1.1 review fixes (2026-11-07, local only, not pushed)
+
+- Admin code is now fail-closed: no default anywhere, the server exits FATAL
+  without `ADMIN_CODE` in the environment (previously the public demo code
+  in the README could approve/reject/hide any report and so rewrite the
+  published medians). Tests use a dummy fixture code and prove the exit.
+- Added `GET /health`; yearly bonus capped at PKR 600,000,000 (was uncapped);
+  admin `status` filter validated (400 on anything else); moderation moves
+  restricted to a legal state machine (illegal move → 409).
+- Admin UI: hidden/rejected reports now have a Restore button (previously
+  only recoverable by direct API call). Report form experience/work-type
+  selects now come from `/api/meta` instead of hardcoded HTML.
+- Stats board now explains the p25–p75 band in plain words ("Typical pay —
+  the middle 50% …"); empty state suggests widening filters; companies
+  empty-state copy corrected (below-3 companies are not listed at all, not
+  "shown as Hidden").
+- Tests: 35 → 52 passing (see test.js).
+
 - Anonymous submit form (8 roles, 11 cities, 4 experience bands, local vs
   remote-international, optional company, optional yearly bonus).
 - Stats board: median, p25, p75, count, min, max, median total monthly

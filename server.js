@@ -3,8 +3,10 @@
 // Published reference figures are other platforms' data, shown with source and
 // date, and are NEVER mixed into community medians.
 // Node.js 24+, native node:http + node:sqlite only. No external dependencies.
-// Port 3033. Data: data/salary.sqlite. Admin gate is a simple shared code
-// (env ADMIN_CODE, default 'salary-admin') — demo-grade, documented in README.
+// Port 3033. Data: data/salary.sqlite.
+// Admin gate is a shared code that comes ONLY from the ADMIN_CODE environment
+// variable. There is NO default: the server exits FATAL without it, so a
+// deployed copy can never be moderated with a code anyone can read in the repo.
 'use strict';
 const http = require('node:http');
 const fs = require('node:fs');
@@ -14,7 +16,11 @@ const { DatabaseSync } = require('node:sqlite');
 const PORT = Number(process.env.PORT || 3033);
 const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'salary.sqlite');
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const ADMIN_CODE = process.env.ADMIN_CODE || 'salary-admin';
+const ADMIN_CODE = process.env.ADMIN_CODE;
+if (!ADMIN_CODE) {
+  console.error('FATAL: ADMIN_CODE environment variable is required. Set a private admin code before starting, e.g. ADMIN_CODE=<private-code> node server.js. There is no default code.');
+  process.exit(1);
+}
 
 const ROLES = ['Software Engineer', 'Data Analyst', 'Web Developer', 'QA Engineer',
   'DevOps Engineer', 'UI/UX Designer', 'Digital Marketer', 'Accountant'];
@@ -23,6 +29,7 @@ const CITIES = ['Lahore', 'Karachi', 'Islamabad', 'Rawalpindi', 'Faisalabad',
 const EXP_BANDS = ['0–1', '1–3', '3–5', '5+'];
 const WORK_TYPES = ['Local Pakistan', 'Remote International'];
 const MAX_BASE = 50000000; // PKR per month; anything at/above is rejected
+const MAX_BONUS = 600000000; // PKR per year (12x MAX_BASE); blocks absurd bonus values inflating the median total
 
 fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
 const db = new DatabaseSync(DB_FILE);
@@ -161,9 +168,13 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://x');
     const p = url.pathname;
+    if (p === '/health' && req.method === 'GET') {
+      return sendJson(res, 200, { ok: true, service: 'salary-reality-index' });
+    }
     if (p === '/api/meta' && req.method === 'GET') {
       return sendJson(res, 200, { roles: ROLES, cities: CITIES, exp_bands: EXP_BANDS,
         work_types: WORK_TYPES, max_base_monthly_pkr: MAX_BASE,
+        max_bonus_yearly_pkr: MAX_BONUS,
         notice: 'Community medians come only from admin-approved anonymous reports. Published reference figures are other platforms\' data and are never mixed into community stats.' });
     }
     if (p === '/api/stats' && req.method === 'GET') {
@@ -196,7 +207,7 @@ const server = http.createServer(async (req, res) => {
       if (!Number.isFinite(base) || base <= 0 || base >= MAX_BASE) {
         return sendJson(res, 400, { error: 'base_monthly_pkr must be a positive number under PKR 50,000,000/month' });
       }
-      if (!Number.isFinite(bonus) || bonus < 0) return sendJson(res, 400, { error: 'bonus_yearly_pkr must be 0 or more' });
+      if (!Number.isFinite(bonus) || bonus < 0 || bonus >= MAX_BONUS) return sendJson(res, 400, { error: 'bonus_yearly_pkr must be 0 or more and under PKR 600,000,000/year' });
       const row = db.prepare(`INSERT INTO reports
         (role, city, exp_band, base_monthly_pkr, bonus_yearly_pkr, work_type, company, status)
         VALUES(?,?,?,?,?,?,?,'pending')`).run(role, city, exp, base, bonus, work, company);
@@ -206,17 +217,35 @@ const server = http.createServer(async (req, res) => {
     if (p === '/api/admin/reports' && req.method === 'GET') {
       if (!adminOk(url.searchParams.get('code') || '')) return sendJson(res, 403, { error: 'bad admin code' });
       const status = url.searchParams.get('status') || 'pending';
+      if (!['pending', 'approved', 'rejected', 'hidden', 'all'].includes(status)) {
+        return sendJson(res, 400, { error: 'status must be pending, approved, rejected, hidden or all' });
+      }
       const rows = status === 'all'
         ? db.prepare('SELECT * FROM reports ORDER BY created_at DESC, id DESC').all()
         : db.prepare('SELECT * FROM reports WHERE status = ? ORDER BY created_at DESC, id DESC').all(status);
       return sendJson(res, 200, { rows });
     }
+    // Moderation state machine: approve restores from pending/hidden/rejected,
+    // reject removes from pending/approved, hide removes from approved only.
+    // Anything else (e.g. hiding a pending report, hiding twice) is a 409, so
+    // a report can never be silently lost from the queue by a wrong click.
+    const ALLOWED_TRANSITIONS = {
+      approved: ['pending', 'hidden', 'rejected'],
+      rejected: ['pending', 'approved'],
+      hidden: ['approved'],
+    };
     const setStatus = async (newStatus) => {
       const body = await readBody(req);
       if (!body || !adminOk(body.code)) return sendJson(res, 403, { error: 'bad admin code' });
       if (body.id === undefined) return sendJson(res, 400, { error: 'id required' });
-      const info = db.prepare('UPDATE reports SET status = ? WHERE id = ?').run(newStatus, Number(body.id));
-      if (info.changes === 0) return sendJson(res, 404, { error: 'report not found' });
+      const id = Number(body.id);
+      if (!Number.isFinite(id)) return sendJson(res, 400, { error: 'id must be a number' });
+      const row = db.prepare('SELECT status FROM reports WHERE id = ?').get(id);
+      if (!row) return sendJson(res, 404, { error: 'report not found' });
+      if (!ALLOWED_TRANSITIONS[newStatus].includes(row.status)) {
+        return sendJson(res, 409, { error: `cannot move report from ${row.status} to ${newStatus}` });
+      }
+      db.prepare('UPDATE reports SET status = ? WHERE id = ?').run(newStatus, id);
       return sendJson(res, 200, { ok: true, status: newStatus });
     };
     if (p === '/api/admin/approve' && req.method === 'POST') return setStatus('approved');

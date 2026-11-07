@@ -23,7 +23,8 @@ async function load() {
       + '<br>bonus ' + pkr(x.bonus_yearly_pkr) + '/yr</td><td>' + esc(x.work_type) + '<br>' + esc(x.company || '—') + '</td><td>'
       + '<span class="badge ' + esc(x.status) + '">' + esc(x.status) + '</span></td><td>'
       + (x.status === 'pending' ? '<button data-act="approve" data-id="' + x.id + '">Approve</button> <button class="danger" data-act="reject" data-id="' + x.id + '">Reject</button>'
-        : x.status === 'approved' ? '<button class="ghost" data-act="hide" data-id="' + x.id + '">Hide</button>' : '—')
+        : x.status === 'approved' ? '<button class="ghost" data-act="hide" data-id="' + x.id + '">Hide</button>'
+        : '<button data-act="approve" data-id="' + x.id + '">Restore</button>')
       + '</td></tr>').join('') + '</tbody></table></div>';
   list.querySelectorAll('button[data-act]').forEach((b) => b.addEventListener('click', async () => {
     const code2 = document.getElementById('code').value;
