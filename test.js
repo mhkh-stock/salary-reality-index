@@ -7,7 +7,7 @@ const path = require('node:path');
 
 const DIR = __dirname;
 const DB = path.join(DIR, 'data', 'test-tmp.sqlite');
-const PORT = 3099;
+const PORT = 3096;
 const BASE = 'http://127.0.0.1:' + PORT;
 const CODE = 'test-admin';
 
@@ -38,11 +38,12 @@ async function stats(q) {
   if (!r.ok) throw new Error('stats failed: ' + JSON.stringify(r.data));
   return r.data;
 }
-async function adminList(status, code) {
+async function adminList(status, code, extra) {
   // Admin list auth: Authorization: Bearer header only — never ?code=.
+  // `extra` appends raw query params (e.g. '&page=2&per_page=10').
   const headers = {};
   if (code !== undefined) headers.Authorization = 'Bearer ' + code;
-  return j(BASE + '/api/admin/reports?status=' + status, { headers });
+  return j(BASE + '/api/admin/reports?status=' + status + (extra || ''), { headers });
 }
 
 async function main() {
@@ -56,6 +57,26 @@ async function main() {
       if (!ready) await new Promise((r) => setTimeout(r, 100));
     }
     check('server starts', ready);
+
+    // 0. DB fallback helper (db-path.js, FoodScope pattern): a read-only app
+    // dir falls back to /tmp/<app>, a writable one stays in data/, and
+    // DB_FILE env wins over both. isWritable is injected so the read-only
+    // case is deterministic even as root (chmod alone would not fail there).
+    const { resolveDbFile } = require('./db-path.js');
+    const os = require('node:os');
+    check('db fallback: read-only app dir -> /tmp/salary/salary.sqlite',
+      resolveDbFile({ appDir: DIR, fileName: 'salary.sqlite', tmpName: 'salary', isWritable: () => false })
+        === path.join(os.tmpdir(), 'salary', 'salary.sqlite'));
+    check('db fallback: writable app dir -> data/salary.sqlite',
+      resolveDbFile({ appDir: DIR, fileName: 'salary.sqlite', tmpName: 'salary', isWritable: () => true })
+        === path.join(DIR, 'data', 'salary.sqlite'));
+    {
+      const prevDbFile = process.env.DB_FILE;
+      process.env.DB_FILE = '/tmp/custom-test.sqlite';
+      const envWins = resolveDbFile({ appDir: DIR, fileName: 'salary.sqlite', tmpName: 'salary', isWritable: () => false }) === '/tmp/custom-test.sqlite';
+      if (prevDbFile === undefined) delete process.env.DB_FILE; else process.env.DB_FILE = prevDbFile;
+      check('db fallback: DB_FILE env wins over both', envWins);
+    }
 
     // 1. Meta lists.
     const meta = await j(BASE + '/api/meta');
@@ -219,10 +240,60 @@ async function main() {
     const sSm = await stats('role=' + encodeURIComponent('Digital Marketer') + '&city=Multan&exp=' + encodeURIComponent('3–5'));
     check('restored report counts again', sSm.count === 1 && sSm.median === 77000, sSm);
 
+    // 14b. Admin-queue pagination. Two pending reports already exist (the
+    // 999999 probe from §5 and the just-under-cap bonus report from 4b,
+    // neither moderated); add 25 more.
+    for (let i = 0; i < 25; i++) {
+      await postReport({ role: 'Data Analyst', city: 'Lahore', exp_band: '1–3',
+        base_monthly_pkr: 40000 + i * 1000, work_type: 'Local Pakistan' });
+    }
+    const pgDef = await adminList('pending', CODE);
+    check('pagination default: 20 rows, total 27, 2 pages, page 1',
+      pgDef.data.rows.length === 20 && pgDef.data.total === 27 && pgDef.data.total_pages === 2 && pgDef.data.page === 1, pgDef.data);
+    const pg1 = await adminList('pending', CODE, '&page=1&per_page=10');
+    check('pagination page 1 of 10: 10 rows, total 27, 3 pages',
+      pg1.data.rows.length === 10 && pg1.data.total === 27 && pg1.data.total_pages === 3, pg1.data);
+    const pg3 = await adminList('pending', CODE, '&page=3&per_page=10');
+    check('pagination page 3 of 10: last 7 rows',
+      pg3.data.rows.length === 7 && pg3.data.page === 3, pg3.data);
+    const pg99 = await adminList('pending', CODE, '&page=99&per_page=10');
+    check('pagination past the end: 0 rows, total still 27',
+      pg99.data.rows.length === 0 && pg99.data.total === 27, pg99.data);
+    check('pagination page=0 -> 400', (await adminList('pending', CODE, '&page=0')).status === 400);
+    check('pagination per_page=101 -> 400', (await adminList('pending', CODE, '&per_page=101')).status === 400);
+    check('pagination per_page=abc -> 400', (await adminList('pending', CODE, '&per_page=abc')).status === 400);
+
+    // 14c. Security headers on API and static responses; favicon serves.
+    const metaRes = await fetch(BASE + '/api/meta');
+    check('security headers on API: nosniff + DENY + no-referrer',
+      metaRes.headers.get('x-content-type-options') === 'nosniff'
+      && metaRes.headers.get('x-frame-options') === 'DENY'
+      && metaRes.headers.get('referrer-policy') === 'no-referrer',
+      { cto: metaRes.headers.get('x-content-type-options'), xfo: metaRes.headers.get('x-frame-options'), rp: metaRes.headers.get('referrer-policy') });
+    const homeRes = await fetch(BASE + '/');
+    check('security headers on static pages: nosniff + DENY + no-referrer',
+      homeRes.headers.get('x-content-type-options') === 'nosniff'
+      && homeRes.headers.get('x-frame-options') === 'DENY'
+      && homeRes.headers.get('referrer-policy') === 'no-referrer');
+    const fav = await fetch(BASE + '/favicon.svg');
+    const favText = await fav.text();
+    check('favicon serves (200, svg, Rs mark)',
+      fav.ok && (fav.headers.get('content-type') || '').includes('image/svg+xml') && favText.includes('>Rs<'), fav.status);
+
+    // 14d. Oversize body: over 200,000 bytes -> 413 JSON, server stays up.
+    const big = await j(BASE + '/api/report', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role: 'Data Analyst', city: 'Lahore', exp_band: '1–3',
+        base_monthly_pkr: 50000, work_type: 'Local Pakistan', company: 'x'.repeat(250000) }) });
+    check('oversize body -> 413 with JSON error',
+      big.status === 413 && big.data.error === 'request body too large', big);
+    const stillUp = await j(BASE + '/api/meta');
+    check('server still serves after a 413', stillUp.ok === true, stillUp.status);
+
     // 15. Fail-closed: a server started without ADMIN_CODE must exit, not serve.
     const DB2 = DB + '2';
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }
-    const envNoCode = { ...process.env, PORT: '3098', DB_FILE: DB2 };
+    const envNoCode = { ...process.env, PORT: '3095', DB_FILE: DB2 };
     delete envNoCode.ADMIN_CODE;
     const child2 = spawn('node', ['server.js'], { cwd: DIR, stdio: 'ignore', env: envNoCode });
     let exitCode = null;
@@ -230,7 +301,7 @@ async function main() {
     for (let i = 0; i < 30 && exitCode === null; i++) await new Promise((r) => setTimeout(r, 100));
     check('server exits without ADMIN_CODE', exitCode !== null && exitCode !== 0, exitCode);
     let noServe = false;
-    try { const r = await fetch('http://127.0.0.1:3098/api/meta'); noServe = !r.ok; } catch { noServe = true; }
+    try { const r = await fetch('http://127.0.0.1:3095/api/meta'); noServe = !r.ok; } catch { noServe = true; }
     check('nothing listening without ADMIN_CODE', noServe);
     try { child2.kill(); } catch {}
     for (const f of [DB2, DB2 + '-wal', DB2 + '-shm']) { try { fs.unlinkSync(f); } catch {} }

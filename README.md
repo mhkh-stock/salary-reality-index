@@ -54,7 +54,7 @@ medians.
 ```bash
 ADMIN_CODE=your-private-code node server.js   # REQUIRED — server exits without it; there is no default code
 DB_FILE=/tmp/salary.sqlite ADMIN_CODE=your-private-code node server.js   # custom DB path (SnapDeploy)
-node test.js              # full test suite on a throwaway DB (uses a dummy test code)
+node test.js              # 71 tests, full test suite on a throwaway DB (uses a dummy test code)
 ```
 
 ## API

@@ -17,7 +17,8 @@ const path = require('node:path');
 const { DatabaseSync } = require('node:sqlite');
 
 const PORT = Number(process.env.PORT || 3033);
-const DB_FILE = process.env.DB_FILE || path.join(__dirname, 'data', 'salary.sqlite');
+const { resolveDbFile } = require('./db-path.js');
+const DB_FILE = resolveDbFile({ appDir: __dirname, fileName: 'salary.sqlite', tmpName: 'salary' });
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const ADMIN_CODE = process.env.ADMIN_CODE;
 if (!ADMIN_CODE) {
@@ -147,27 +148,45 @@ function bearerCode(req) {
 }
 
 // ---- HTTP layer (same shape as the house style) ----
+function setSecurityHeaders(res) {
+  // No inline scripts or external resources anywhere on the site, so these
+  // three headers are safe on every response, JSON and static alike.
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+}
 function sendJson(res, code, obj) {
+  setSecurityHeaders(res);
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8', 'Content-Length': Buffer.byteLength(body) });
   res.end(body);
 }
+const MAX_BODY = 200000; // bytes; anything bigger is a 413, never a hang
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 200000) req.destroy(); });
-    req.on('end', () => { try { resolve(data ? JSON.parse(data) : {}); } catch { resolve(null); } });
+    let tooLarge = false;
+    req.on('data', (c) => {
+      if (tooLarge) return; // keep draining so the connection stays clean, discard
+      data += c;
+      if (data.length > MAX_BODY) { tooLarge = true; data = ''; }
+    });
+    req.on('end', () => {
+      if (tooLarge) return reject(Object.assign(new Error('request body too large'), { statusCode: 413 }));
+      try { resolve(data ? JSON.parse(data) : {}); } catch { resolve(null); }
+    });
     req.on('error', reject);
   });
 }
-const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8' };
+const MIME = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.json': 'application/json; charset=utf-8', '.svg': 'image/svg+xml' };
 function serveStatic(req, res) {
   let urlPath = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   if (urlPath === '/') urlPath = '/index.html';
   const file = path.join(PUBLIC_DIR, path.normalize(urlPath).replace(/^(\.\.[/\\])+/, ''));
-  if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end('Forbidden'); }
+  if (!file.startsWith(PUBLIC_DIR)) { setSecurityHeaders(res); res.writeHead(403); return res.end('Forbidden'); }
   fs.readFile(file, (err, data) => {
-    if (err) { res.writeHead(404); return res.end('Not found'); }
+    if (err) { setSecurityHeaders(res); res.writeHead(404); return res.end('Not found'); }
+    setSecurityHeaders(res);
     res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
     res.end(data);
   });
@@ -235,7 +254,18 @@ const server = http.createServer(async (req, res) => {
       const rows = status === 'all'
         ? db.prepare('SELECT * FROM reports ORDER BY created_at DESC, id DESC').all()
         : db.prepare('SELECT * FROM reports WHERE status = ? ORDER BY created_at DESC, id DESC').all(status);
-      return sendJson(res, 200, { rows });
+      // Admin-queue pagination: ?page=1&per_page=20 (per_page 1–100).
+      // Defaults keep the queue readable; total/total_pages let the admin
+      // page show a pager instead of dumping the whole queue at once.
+      const page = Number(url.searchParams.get('page') || '1');
+      const perPage = Number(url.searchParams.get('per_page') || '20');
+      if (!Number.isInteger(page) || page < 1 || !Number.isInteger(perPage) || perPage < 1 || perPage > 100) {
+        return sendJson(res, 400, { error: 'page must be >= 1 and per_page must be 1–100' });
+      }
+      const total = rows.length;
+      const totalPages = Math.max(1, Math.ceil(total / perPage));
+      const pageRows = rows.slice((page - 1) * perPage, page * perPage);
+      return sendJson(res, 200, { rows: pageRows, page, per_page: perPage, total, total_pages: totalPages });
     }
     // Moderation state machine: approve restores from pending/hidden/rejected,
     // reject removes from pending/approved, hide removes from approved only.
@@ -267,7 +297,10 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(405); res.end('Method not allowed');
   } catch (e) {
     console.error(e);
-    sendJson(res, 500, { error: 'server error' });
+    // A 413 from readBody (oversize body) keeps its status; everything else
+    // is a plain 500 — the body is never echoed back.
+    const code = e && e.statusCode ? e.statusCode : 500;
+    sendJson(res, code, { error: code === 413 ? 'request body too large' : 'server error' });
   }
 });
 
